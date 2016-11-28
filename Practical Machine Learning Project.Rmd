@@ -4,7 +4,6 @@ author: "Michael Pearson"
 date: "11/27/2016"
 output: html_document
 ---
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -15,7 +14,11 @@ This report is for the project in the Practical Maching Learning course that is 
 
 “Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement ??? a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).:
 
-```{r include = FALSE, cache = FALSE, messages = FALSE}
+## The goal is to use the training set of data to predict the results of the test set of data. 
+
+I will ultimately use the randomForest method.
+
+```{r load the libraries}
 # load the required packages
 library(caret)
 library(rattle)
@@ -36,12 +39,75 @@ The test data are available here:
 
 https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
 
-```{r get it }
+```{r get the raw data }
 trainsrc <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
 testsrc <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
 training <- read.csv(trainsrc, na.strings = c("NA", "#DIV/0!", ""), header = TRUE) 
 testing <- read.csv(testsrc, na.strings = c("NA", "#DIV/0!", ""), header = TRUE)
+namez <- names(training)
+```
+## Subset the data in a reasonable way
+
+
+The training data is `r dim(training)` and the testing is `r dim(testing)`. 
+
+By examining the header information we see that the last column contains the variable result we want : `r namez[160]`.
+
+When we further examine the data, we see that the first 7 columns do not contain sensor data - and we should only be using relevant data: sensor data. The first 7 columns are `r namez[1:7]`.
+
+Let's subset the data to only the sensor data, then let's partition the training set into two data sets.
+```{r clean the data for analysis}
+trainsens <- training[,8:160]
+testsens <- testing[8:160]
+badcols <- which(colSums(is.na(trainsens))> 19662*0.2)
+goodtrain <- trainsens[,-badcols]
+```
+## Get rid of the pesky NA's
+
+Let's also get rid of columns with a lot of NA's . I'm going to set the threshold at 20% or more NA's will get a column excluded.
+
+So we go from `r ncol(testsens)` columns of sensor readings down to `r ncol(goodtrain)` when we remove columns with more than 20% NAs. We can begin the analysis now.
+
+We will partition the training data into a 65% subtrain and 35% subtest partitions to make use of the training set twice.
+```{r partition the training for use twice}
+set.seed(331)
+inTrain <- createDataPartition(y=goodtrain$classe, p=0.65, list = FALSE)
+subtrain <- goodtrain[inTrain,]
+subtest <- goodtrain[-inTrain,]
 
 ```
+The dimesions of subtrain are `r dim(subtrain)` and of subtest `r dim(subtest)`. We will use the randomForest function to fit the training data subset "subtrain"
 
-The training data is `r dim(training)` and the testing is `r dim(testing)`.
+```{r make the random forest prediction, include=TRUE}
+randFo <- randomForest(classe ~., data = subtrain, ntree = 500)
+randFo
+```
+## How did randomForest do?
+
+This gives us an accuracy over 99%.
+
+Now let's apply this prediction to the subset of training that we partitioned. And then look at the error estimate from confusion Matrix.
+```{r now lets get some confusion, include=TRUE}
+howdIdo <- predict(randFo, newdata = subtest)
+confusionMatrix(howdIdo, subtest$classe)
+```
+We see that the accuracy and the Kappa indicate that we have a good fit to the subset of the training data. Now let's see how it predicts with our real testing data.
+
+## Other methods
+
+We could try a regression tree with rpart, and then take a look at the tree just for fun.
+```{r look at the regression tree and predict}
+anotha <- rpart(classe ~., data = subtrain, method = "class")
+fancyRpartPlot(anotha)
+treez <- predict(anotha, subtest, type = "class")
+confusionMatrix(treez, subtest$classe)
+```
+## Choice
+
+The random forest looks much better, so I will use that method to predict the results
+```{r final prediction}
+
+momtruth <- predict(randFo, newdata = testsens)
+momtruth
+```
+And that is my prediction for the testing data.
